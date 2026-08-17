@@ -1,0 +1,56 @@
+name: Repair auth and button initialization
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # A previous PDF patch left orphaned async canvas code after the real download handler.
+          # That made the entire script invalid, so none of the auth/navigation buttons could initialize.
+          bad='var canvas=await window.html2canvas(clone'
+          pos=s.find(bad)
+          if pos != -1:
+              end=s.find('</script>', pos)
+              if end == -1:
+                  raise SystemExit('Could not locate script end')
+              s=s[:pos]+s[end:]
+
+          # The old PDF handler referenced a removed #downloadInvoice element. Replace the whole
+          # registration with a direct handler on the visible Download PDF button.
+          marker="document.getElementById('downloadInvoice').addEventListener('click',async function(){"
+          start=s.find(marker)
+          if start != -1:
+              end=s.find("});", start)
+              if end == -1:
+                  raise SystemExit('Could not close old PDF handler')
+              end += 3
+              handler=r'''document.getElementById('printModal').addEventListener('click',function(e){if(e.target.id==='previewClose')document.getElementById('printModal').classList.remove('open');if(e.target.id==='previewPrint')window.print();if(e.target.id==='previewDownload')downloadVisiblePdf()});async function downloadVisiblePdf(){var source=document.querySelector('#printContent .invoice-ref');var btn=document.getElementById('previewDownload');var num=(window.currentInvoiceNumber||'invoice').replace(/[^a-z0-9_-]/gi,'_');if(!source||!btn){return}if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF engine did not load. Please refresh the page and try again.');return}btn.disabled=true;btn.textContent='Preparing PDF…';try{if(document.fonts&&document.fonts.ready)await document.fonts.ready;await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r)})});var PDF=window.jspdf.jsPDF;var pdf=new PDF({unit:'mm',format:'a4',orientation:'portrait',compress:true});await new Promise(function(resolve,reject){pdf.html(source,{x:10,y:10,width:190,windowWidth:718,autoPaging:'text',margin:[10,10,10,10],html2canvas:{scale:1.5,useCORS:true,allowTaint:false,backgroundColor:'#fff',logging:false,scrollX:0,scrollY:0},callback:function(doc){try{doc.setProperties({title:'BHIVE Invoice '+num,author:'BHIVE Resource Intl LTD'});doc.save('BHIVE-'+num+'.pdf');resolve()}catch(err){reject(err)}}}).catch(reject)});}catch(err){console.error(err);alert('PDF could not be generated. '+(err.message||'Please try again.'))}finally{btn.disabled=false;btn.textContent='Download PDF'}});'''
+              s=s[:start]+handler+s[end:]
+
+          # The current file lost these helpers during the PDF patches. Restore lightweight dashboard/history/client loaders.
+          if 'function loadDashboard' not in s:
+              helpers=r'''function loadDashboard(){client.auth.getUser().then(function(ur){var user=ur.data&&ur.data.user;if(!user)return;return client.from('invoices').select('*').eq('user_id',user.id).order('created_at',{ascending:false})}).then(function(res){if(!res||res.error)return;var list=res.data||[];var total=list.length;var now=new Date();var month=list.filter(function(x){var d=new Date(x.invoice_date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear()});var billed=list.reduce(function(a,x){return a+Number(x.total_amount||0)},0);var vat=list.reduce(function(a,x){return a+Number(x.vat_amount||0)},0);document.getElementById('totalInvoices').textContent=total;document.getElementById('monthInvoices').textContent=month.length;document.getElementById('totalBilled').textContent=money(billed);document.getElementById('totalVat').textContent=money(vat);var recent=list.slice(0,5);document.getElementById('recent').innerHTML=recent.length?'<div class="tablewrap"><table class="table"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Total</th></tr></thead><tbody>'+recent.map(function(x){return '<tr><td>'+String(x.invoice_number||'')+'</td><td>'+String(x.client_name||'')+'</td><td>'+String(x.invoice_date||'')+'</td><td>'+money(x.total_amount)+'</td></tr>'}).join('')+'</tbody></table></div>':'<p class="muted">No invoices yet.</p>';var box=document.getElementById('invoiceList');if(box){box.innerHTML=list.length?'<table class="table"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Total</th></tr></thead><tbody>'+list.map(function(x){return '<tr><td>'+String(x.invoice_number||'')+'</td><td>'+String(x.client_name||'')+'</td><td>'+String(x.invoice_date||'')+'</td><td>'+money(x.total_amount)+'</td></tr>'}).join('')+'</tbody></table>':'<p class="muted">No invoices yet.</p>'}})}function loadClients(){client.auth.getUser().then(function(ur){var user=ur.data&&ur.data.user;if(!user)return;return client.from('invoices').select('client_name,client_address').eq('user_id',user.id)}).then(function(res){if(!res||res.error)return;var seen={};(res.data||[]).forEach(function(x){if(x.client_name)seen[x.client_name]=x.client_address||''});var names=Object.keys(seen);document.getElementById('clientList').innerHTML=names.length?'<table class="table"><thead><tr><th>Client</th><th>Address</th></tr></thead><tbody>'+names.map(function(n){return '<tr><td>'+n+'</td><td>'+seen[n]+'</td></tr>'}).join('')+'</tbody></table>':'<p class="muted">No clients yet.</p>')})}
+'''
+              s=s.replace('</script></body></html>',helpers+'</script></body></html>')
+
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit repaired file and remove updater
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/repair-auth-buttons.yml
+          git add index.html
+          git commit -m "Repair auth buttons and restore portal initialization"
+          git push
