@@ -1,0 +1,31 @@
+name: Apply BHIVE print styling
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  update-print:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update account details styling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          old = '.accounts{margin-top:22px;background:var(--light);padding:14px;font-size:17px;line-height:1.65;font-weight:900}'
+          new = '.accounts{margin-top:22px;background:#70AD47;color:#111;border:2px solid #70AD47;padding:16px 18px;font-size:17px;line-height:1.7;font-weight:900;break-inside:avoid;page-break-inside:avoid}'
+          if old not in s:
+              raise SystemExit('Target print styling was not found; no changes made.')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/update-print.yml
+          git add index.html
+          git commit -m "Style invoice payment account details in BHIVE green"
+          git push
