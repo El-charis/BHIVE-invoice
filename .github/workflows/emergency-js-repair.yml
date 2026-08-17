@@ -1,0 +1,61 @@
+name: Emergency JavaScript repair
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair script syntax and PDF button binding
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # The production file currently contains orphaned PDF canvas code after the valid
+          # download handler. That makes the entire DOMContentLoaded script invalid and prevents
+          # every auth/navigation button from receiving its click handler.
+          marker='var canvas=await window.html2canvas(clone'
+          if marker in s:
+              prefix, _ = s.split(marker, 1)
+              tail='});});</script>'
+              if tail not in s:
+                  raise SystemExit('Expected script tail not found')
+              # The prefix already ends with the valid download handler's `});`.
+              s=prefix+'});</script>'
+
+          # The visible Download PDF button is previewDownload; there is no downloadInvoice element.
+          s=s.replace("if(e.target.id==='previewDownload')document.getElementById('downloadInvoice').click()", "if(e.target.id==='previewDownload')downloadVisiblePdf()")
+
+          # Add a single PDF function that renders the actual visible invoice element.
+          if 'async function downloadVisiblePdf()' not in s:
+              needle="document.getElementById('printModal').addEventListener('click',function(e){"
+              pdf=r'''async function downloadVisiblePdf(){var source=document.querySelector('#printContent .invoice-ref');var btn=document.getElementById('previewDownload');var num=(window.currentInvoiceNumber||'invoice').replace(/[^a-z0-9_-]/gi,'_');if(!source||!btn){alert('Invoice preview is not ready.');return}if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF engine did not load. Refresh the page and try again.');return}btn.disabled=true;btn.textContent='Preparing PDF…';try{if(document.fonts&&document.fonts.ready)await document.fonts.ready;await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r)})});var pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'portrait',compress:true});await pdf.html(source,{x:10,y:10,width:190,windowWidth:718,autoPaging:'text',margin:[10,10,10,10],html2canvas:{scale:1.5,useCORS:true,allowTaint:false,backgroundColor:'#fff',logging:false,scrollX:0,scrollY:0},callback:function(doc){doc.setProperties({title:'BHIVE Invoice '+num,author:'BHIVE Resource Intl LTD'});doc.save('BHIVE-'+num+'.pdf')}})}catch(err){console.error('PDF export error',err);alert('PDF could not be generated: '+(err.message||'Please try again.'))}finally{btn.disabled=false;btn.textContent='Download PDF'}}'''
+              if needle not in s: raise SystemExit('print modal listener not found')
+              s=s.replace(needle,pdf+needle,1)
+
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Validate JavaScript syntax
+        run: |
+          node --version
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('index.html').read_text(encoding='utf-8')
+          js=re.search(r'<script>(.*)</script></body>',s,re.S).group(1)
+          Path('/tmp/app.js').write_text(js,encoding='utf-8')
+          PY
+          node --check /tmp/app.js
+      - name: Commit repair and remove updater
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/emergency-js-repair.yml
+          git add index.html
+          git commit -m "Fix fatal JavaScript syntax error blocking all buttons"
+          git push
