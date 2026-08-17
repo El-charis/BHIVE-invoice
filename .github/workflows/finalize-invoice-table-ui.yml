@@ -1,0 +1,49 @@
+name: Finalize invoice table UI
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply exact invoice table styling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # Remove the non-working duplicate Add Day control below the manual-entry table.
+          s,n=re.subn(r'<div class="entry-add">.*?</div>', '', s, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit('Duplicate Add Day container not found')
+
+          # Match the supplied invoice reference: outer table border, header borders,
+          # and subtotal borders only. No vertical or horizontal borders inside body rows.
+          style='''<style id="invoice-table-reference-fix">\n.invoice-ref .ref-week table{border:1px solid #777!important;border-collapse:collapse!important;border-spacing:0!important;overflow:visible!important}\n.invoice-ref .ref-week th{background:#D2D9EB!important;border:0!important;border-bottom:1px solid #777!important;padding:6px 8px!important}\n.invoice-ref .ref-week td{border:0!important;padding:6px 7px!important;height:18px;box-sizing:border-box}\n.invoice-ref .ref-week tbody tr:not(.ref-subtotal) td{border:0!important}\n.invoice-ref .ref-week .ref-subtotal td{border-top:1px solid #777!important;border-bottom:1px solid #777!important}\n.invoice-ref .ref-week .ref-subtotal td:last-child{border-right:0!important}\n</style>'''
+          s=s.replace('</head>',style+'</head>',1)
+
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Validate JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('index.html').read_text(encoding='utf-8')
+          js=re.search(r'<script>(.*)</script></body>',s,re.S).group(1)
+          Path('/tmp/app.js').write_text(js,encoding='utf-8')
+          PY
+          node --check /tmp/app.js
+      - name: Commit and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/finalize-invoice-table-ui.yml
+          git add index.html
+          git commit -m "Match reference invoice table borders and remove duplicate add day"
+          git push
