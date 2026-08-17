@@ -1,4 +1,4 @@
-name: Fix invoice week labels and subtotal borders
+name: Fix subtotal alignment
 on:
   push:
     branches: [main]
@@ -9,78 +9,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch rendered invoice output
+      - name: Fix six-column subtotal row
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          marker='</script></body>'
-          if marker not in s: raise SystemExit('script marker not found')
-          patch=r'''<script>
-          // Final invoice-output correction layer: keep the PDF/printout aligned
-          // with the dates actually present in each week table.
-          (function(){
-            function fixRenderedInvoice(){
-              var root=document.querySelector('#printContent .invoice-ref');
-              if(!root) return;
-
-              // The subtotal row must occupy all six invoice columns:
-              // Date | Items | Day | Qty | Rate | Amount.
-              root.querySelectorAll('.ref-subtotal').forEach(function(row){
-                var cells=row.querySelectorAll('td');
-                if(cells.length===5){
-                  var blank=document.createElement('td');
-                  row.insertBefore(blank,cells[2]);
-                }
-              });
-
-              // Week labels describe the entries actually present, rather than
-              // blindly displaying the entire Monday-Sunday calendar span.
-              root.querySelectorAll('.ref-week').forEach(function(block,index){
-                var title=block.querySelector('.ref-week-title');
-                var rows=Array.from(block.querySelectorAll('tbody tr:not(.ref-subtotal)'));
-                if(!title || !rows.length) return;
-                var dates=rows.map(function(row){
-                  var cell=row.querySelector('td');
-                  return cell ? cell.textContent.trim() : '';
-                }).filter(Boolean);
-                if(!dates.length) return;
-                var first=dates[0], last=dates[dates.length-1];
-                var firstParts=first.split(/\s+/), lastParts=last.split(/\s+/);
-                var firstMonth=(firstParts[0]||'').toUpperCase();
-                var lastMonth=(lastParts[0]||'').toUpperCase();
-                var firstDay=firstParts.slice(1).join(' ');
-                var lastDay=lastParts.slice(1).join(' ');
-                var range=first===last
-                  ? firstMonth+' '+firstDay
-                  : (firstMonth===lastMonth ? firstMonth+' '+firstDay+'–'+lastDay : firstMonth+' '+firstDay+' – '+lastMonth+' '+lastDay);
-                title.textContent='WEEK '+(index+1)+' ('+range+')';
-              });
-            }
-
-            if(typeof showPrint==='function'){
-              var originalShowPrint=showPrint;
-              window.showPrint=function(){
-                var result=originalShowPrint.apply(this,arguments);
-                requestAnimationFrame(function(){requestAnimationFrame(fixRenderedInvoice)});
-                return result;
-              };
-            }
-            document.addEventListener('click',function(e){
-              if(e.target && (e.target.id==='previewDownload'||e.target.closest('#previewDownload'))){
-                requestAnimationFrame(function(){requestAnimationFrame(fixRenderedInvoice)});
-              }
-            });
-          })();
-          </script>'''
-          s=s.replace(marker,patch+marker,1)
-
-          # Give the final amount cell a guaranteed visible right edge.
-          s=s.replace('.invoice-ref .ref-week td{border:1px solid #777!important;', '.invoice-ref .ref-week td{border:1px solid #777!important;')
-          s=s.replace('.invoice-ref .ref-week th:nth-child(6),.invoice-ref .ref-week td:nth-child(6){width:19%;padding-right:8px}', '.invoice-ref .ref-week th:nth-child(6),.invoice-ref .ref-week td:nth-child(6){width:19%;padding-right:8px;border-right:1px solid #555!important}')
-          s=s.replace('.ref-subtotal td{border-top:1px solid #777!important;border-bottom:1px solid #777!important;', '.ref-subtotal td{border-top:1px solid #777!important;border-bottom:1px solid #777!important;border-right:1px solid #777!important;')
-
+          old="html+='<tr class=\"ref-subtotal\"><td>Subtotal</td><td></td><td>'+list.reduce(function(a,x){return a+(Number(x.quantity)||0)},0)+'</td><td></td><td>₦'+subtotal.toLocaleString('en-NG',{maximumFractionDigits:2})+'</td></tr></tbody></table></div>';"
+          new="html+='<tr class=\"ref-subtotal\"><td>Subtotal</td><td></td><td></td><td>'+list.reduce(function(a,x){return a+(Number(x.quantity)||0)},0)+'</td><td></td><td>₦'+subtotal.toLocaleString('en-NG',{maximumFractionDigits:2})+'</td></tr></tbody></table></div>';"
+          if old not in s:
+              raise SystemExit('Expected subtotal markup was not found')
+          s=s.replace(old,new,1)
+          # The output table should use its full available width so the right edge
+          # and Amount column are not shortened by the previous 1px workaround.
+          s=s.replace('.invoice-ref table{width:calc(100% - 1px);max-width:calc(100% - 1px);', '.invoice-ref table{width:100%!important;max-width:100%!important;')
           p.write_text(s,encoding='utf-8')
           PY
       - name: Validate JavaScript
@@ -97,7 +39,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/fix-week-and-subtotal.yml
           git add index.html
-          git commit -m "Fix week labels and subtotal amount border"
+          git rm .github/workflows/fix-week-and-subtotal.yml
+          git commit -m "Fix subtotal alignment and full amount border"
           git push
