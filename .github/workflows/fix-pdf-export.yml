@@ -1,0 +1,24 @@
+name: Fix PDF export
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix PDF export and table borders
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # Give the PDF a safer printable width so no border/column can sit outside A4.
+          s=s.replace('width:190mm;max-width:190mm;margin:0 auto;', 'width:180mm;max-width:180mm;margin:0 auto;', 1)
+
+          # Use full cell borders instead of removing bottom borders from body rows.
+          s=s.replace('.invoice-ref .ref-week td{border-left:1px solid
