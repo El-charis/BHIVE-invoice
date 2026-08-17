@@ -1,0 +1,55 @@
+name: Final print PDF fix
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix preview, PDF rendering and item persistence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # The preview sheet is A4; the invoice content must fill only its 190mm printable area.
+          s=s.replace('.invoice-ref{font-family:Calibri,Candara,"Segoe UI",Arial,sans-serif;color:#000;font-size:9pt;background:#fff;width:190mm;max-width:190mm;margin:0;padding:0;box-sizing:border-box;overflow:visible}', '.invoice-ref{font-family:Calibri,Candara,"Segoe UI",Arial,sans-serif;color:#000;font-size:9pt;background:#fff;width:100%;max-width:100%;margin:0;padding:0;box-sizing:border-box;overflow:visible}', 1)
+          s=s.replace('.invoice-ref table{width:190mm;max-width:190mm;border-collapse:collapse;border-spacing:0;table-layout:fixed;box-sizing:border-box}', '.invoice-ref table{width:100%;max-width:100%;border-collapse:collapse;border-spacing:0;table-layout:fixed;box-sizing:border-box}', 1)
+          s=s.replace('.invoice-ref .ref-week th,.invoice-ref .ref-week td{box-sizing:border-box;overflow:hidden}', '.invoice-ref .ref-week th,.invoice-ref .ref-week td{box-sizing:border-box;overflow-wrap:anywhere;word-break:normal}', 1)
+          s=s.replace('.invoice-ref .ref-week td{border:1px solid #777!important;padding:6px 7px;height:18px}', '.invoice-ref .ref-week td{border:1px solid #777!important;padding:6px 7px;height:18px;box-sizing:border-box}', 1)
+
+          # Remove the duplicate print rule that was overriding the true A4 print sheet.
+          duplicate='@media print{body>*:not(#printModal){display:none!important}.modal{position:static;display:block;background:#fff;padding:0}.sheet{width:100%;max-height:none;box-shadow:none;padding:0}.toolbar{display:none!important}}'
+          s=s.replace(duplicate,'',1)
+
+          # Save button should retain the requested download wording.
+          s=s.replace("button.textContent='Save & Preview Invoice'", "button.textContent='Save & Download PDF'", 1)
+
+          # Persist the entered Items value to invoice_items.description.
+          s=s.replace("description:'Invoice item',quantity:Number(r.qty)||0,rate:Number(r.rate)||0", "description:r.item||'Invoice item',quantity:Number(r.qty)||0,rate:Number(r.rate)||0", 1)
+
+          # Replace PDF export with a dedicated off-screen pixel canvas. This avoids html2canvas capturing
+          # the scrollable modal/container state and eliminates the blank-PDF failure.
+          marker="document.getElementById('downloadInvoice').addEventListener('click',async function(){"
+          start=s.find(marker)
+          if start<0: raise SystemExit('download handler not found')
+          end=s.find("});});</script>", start)
+          if end<0: raise SystemExit('download handler end not found')
+          # Keep the outer DOMContentLoaded close; replace only the handler body through its final });
+          new=r'''document.getElementById('downloadInvoice').addEventListener('click',async function(){var source=document.querySelector('#printContent .invoice-ref');var num=(window.currentInvoiceNumber||'invoice').replace(/[^a-z0-9_-]/gi,'_');var btn=document.getElementById('downloadInvoice');if(!source){alert('Invoice preview is not ready. Please close and generate the invoice again.');return}btn.disabled=true;btn.textContent='Preparing PDF…';var stage=null;try{if(!window.html2canvas||!window.jspdf||!window.jspdf.jsPDF)throw new Error('PDF engine did not load. Refresh the page and try again.');document.getElementById('printModal').classList.add('open');if(document.fonts&&document.fonts.ready)await document.fonts.ready;stage=document.createElement('div');stage.id='pdfStage';stage.style.cssText='position:fixed;left:-100000px;top:0;width:718px;background:#fff;z-index:-1;display:block;padding:0;margin:0;overflow:visible';var clone=source.cloneNode(true);clone.style.cssText='display:block;width:718px;max-width:718px;margin:0;padding:0;background:#fff;font-family:Calibri,Candara,"Segoe UI",Arial,sans-serif;box-sizing:border-box;overflow:visible';stage.appendChild(clone);document.body.appendChild(stage);await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r)})});var canvas=await window.html2canvas(clone,{scale:2,backgroundColor:'#fff',useCORS:true,allowTaint:false,logging:false,removeContainer:true,scrollX:0,scrollY:0,width:718,windowWidth:718});if(!canvas.width||!canvas.height)throw new Error('Invoice rendered with no visible content');var PDF=window.jspdf.jsPDF;var pdf=new PDF({unit:'mm',format:'a4',orientation:'portrait',compress:true});var margin=10,usableW=190,usableH=277;var pxPerMm=canvas.width/usableW;var pagePx=Math.max(1,Math.floor(usableH*pxPerMm));var pages=Math.ceil(canvas.height/pagePx);for(var i=0;i<pages;i++){if(i>0)pdf.addPage();var hpx=Math.min(pagePx,canvas.height-i*pagePx);var slice=document.createElement('canvas');slice.width=canvas.width;slice.height=hpx;var ctx=slice.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,slice.width,slice.height);ctx.drawImage(canvas,0,i*pagePx,canvas.width,hpx,0,0,canvas.width,hpx);var hmm=hpx/canvas.width*usableW;pdf.addImage(slice.toDataURL('image/jpeg',0.97),'JPEG',margin,margin,usableW,hmm,undefined,'FAST')}pdf.setProperties({title:'BHIVE Invoice '+num,author:'BHIVE Resource Intl LTD'});pdf.save('BHIVE-'+num+'.pdf')}catch(err){console.error('PDF export error:',err);alert('PDF could not be generated. '+(err.message||'Please try again.'))}finally{if(stage&&stage.parentNode)stage.parentNode.removeChild(stage);btn.disabled=false;btn.textContent='Download PDF'}});'''
+          s=s[:start]+new+s[end:]
+
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit and remove updater
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/final-print-pdf-fix.yml
+          git add index.html
+          git commit -m "Fix printable preview and blank PDF export"
+          git push
