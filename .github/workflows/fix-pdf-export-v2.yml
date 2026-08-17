@@ -1,0 +1,45 @@
+name: Fix PDF export v2
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix PDF export and borders
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # A4-safe invoice canvas. Keep the invoice inside the printable area.
+          s=s.replace('width:190mm;max-width:190mm;margin:0 auto;padding:0;box-sizing:border-box;overflow:hidden', 'width:178mm;max-width:178mm;margin:0 auto;padding:0;box-sizing:border-box;overflow:visible', 1)
+
+          # Full table grid prevents clipped/missing borders in PDF rendering.
+          s=s.replace('.invoice-ref .ref-week td{border-left:1px solid #777;border-right:1px solid #777;padding:6px 8px;height:18px}', '.invoice-ref .ref-week td{border:1px solid #777!important;padding:6px 8px;height:18px;box-sizing:border-box}', 1)
+          s=s.replace('.invoice-ref .ref-week tbody tr:not(.ref-subtotal) td{border-bottom:0}', '.invoice-ref .ref-week tbody tr:not(.ref-subtotal) td{border-bottom:1px solid #777!important}', 1)
+          s=s.replace('.invoice-ref table{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed}', '.invoice-ref table{width:100%;max-width:100%;border-collapse:collapse;border-spacing:0;table-layout:fixed}', 1)
+
+          # Replace the PDF click handler with a render-safe async exporter.
+          old="document.getElementById('downloadInvoice').addEventListener('click',function(){var el=document.getElementById('printContent');var num=(window.currentInvoiceNumber||'invoice').replace(/[^a-z0-9_-]/gi,'_');if(!window.html2pdf){alert('PDF service is still loading. Please try again.');return}window.html2pdf().set({margin:[7,7,7,7],filename:'BHIVE-'+num+'.pdf',image:{type:'jpeg',quality:0.98},html2canvas:{scale:1.5,useCORS:true,backgroundColor:'#ffffff',width:718,windowWidth:718},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(el).save()});"
+          new="document.getElementById('downloadInvoice').addEventListener('click',async function(){var el=document.getElementById('printContent');var num=(window.currentInvoiceNumber||'invoice').replace(/[^a-z0-9_-]/gi,'_');if(!window.html2pdf){alert('PDF service is still loading. Please try again.');return}var btn=document.getElementById('downloadInvoice');btn.disabled=true;btn.textContent='Preparing PDF…';try{document.getElementById('printModal').classList.add('open');el.scrollTop=0;if(document.fonts&&document.fonts.ready)await document.fonts.ready;await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r)})});var opt={margin:[7,7,7,7],filename:'BHIVE-'+num+'.pdf',image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,allowTaint:false,backgroundColor:'#ffffff',scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},pagebreak:{mode:['css','legacy']}};await window.html2pdf().set(opt).from(el).toPdf().get('pdf').then(function(pdf){pdf.setProperties({title:'BHIVE Invoice '+num,author:'BHIVE Resource Intl LTD'});}).save()}catch(err){console.error(err);alert('PDF could not be generated. Please try again.')}finally{btn.disabled=false;btn.textContent='Download PDF'}});"
+          if old not in s:
+              raise SystemExit('Download handler not found')
+          s=s.replace(old,new,1)
+
+          # Ensure the modal/sheet doesn't constrain the export canvas.
+          s=s.replace('.sheet{background:#fff;width:min(900px,100%);max-height:92vh;overflow:auto;padding:30px}', '.sheet{background:#fff;width:min(900px,100%);max-height:92vh;overflow:auto;padding:30px}', 1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit and remove updater
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-pdf-export-v2.yml
+          git add index.html
+          git commit -m "Fix blank PDF export and table border rendering"
+          git push
