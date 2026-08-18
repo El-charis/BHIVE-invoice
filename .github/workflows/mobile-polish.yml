@@ -1,0 +1,84 @@
+name: Polish mobile UX
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply mobile UX polish
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          patch=r'''<style id="mobile-polish-v2">
+          @media(max-width:800px){
+            :root{--m-gutter:16px;--m-radius:14px}
+            body{background:#f5f7f3;color:#172017}
+            .content{padding:18px var(--m-gutter) 105px!important}
+            .side{position:sticky!important;top:0;z-index:40;width:100%!important;padding:12px var(--m-gutter)!important;background:rgba(255,255,255,.96)!important;border-bottom:1px solid #e0e7dc!important;box-shadow:0 4px 18px #17300f0b!important;backdrop-filter:blur(12px)}
+            .brand{font-size:21px!important;line-height:1.1;margin:1px 0 10px 1px}
+            .nav{display:flex!important;gap:7px!important;margin:0!important;overflow-x:auto;padding:0 0 2px!important;scrollbar-width:none}.nav::-webkit-scrollbar{display:none}.nav button{flex:0 0 auto!important;min-height:42px!important;padding:10px 14px!important;border-radius:10px!important;font-size:13px!important;white-space:nowrap!important}.nav button.active{box-shadow:0 3px 10px #326d2530!important}
+            .top{height:auto!important;min-height:58px;padding:10px var(--m-gutter)!important;background:#fff;position:relative}
+            .card{padding:18px!important;border-radius:var(--m-radius)!important;box-shadow:0 6px 24px #17300f0a!important}
+            .new-card{padding:14px!important}
+            .form-section{padding:16px!important;margin-top:14px!important;border-radius:var(--m-radius)!important;background:#fff!important}.form-section-title{display:block!important;margin-bottom:14px!important}.form-section-title h3{font-size:16px!important}.form-section-title p{font-size:12px!important;line-height:1.5}.form-section-title .btn{width:100%!important;min-height:44px;margin-top:12px!important}
+            label{font-size:11px!important;margin:14px 0 7px!important;letter-spacing:.01em}input,textarea{min-height:47px!important;padding:12px 13px!important;border-radius:10px!important;font-size:15px!important;border-color:#cdd8c9!important}input:focus,textarea:focus,select:focus{outline:3px solid #d4f5c3!important;outline-offset:0;border-color:#58a83d!important}input::placeholder,textarea::placeholder{color:#8a9486!important;opacity:1}
+            .grid2{grid-template-columns:1fr!important;gap:0!important}
+            .invoice-actions{position:fixed!important;left:0;right:0;bottom:0;z-index:45;margin:0!important;padding:10px var(--m-gutter) calc(10px + env(safe-area-inset-bottom))!important;background:rgba(255,255,255,.97)!important;border-top:1px solid #dfe6da!important;box-shadow:0 -7px 24px #17300f14!important;backdrop-filter:blur(14px);display:grid!important;grid-template-columns:1fr 1fr!important;gap:8px!important}.invoice-actions .btn,.invoice-actions .primary{min-width:0!important;width:100%!important;min-height:47px!important;border-radius:11px!important}.invoice-actions .primary{grid-column:1 / -1;order:-1}
+            .manual-title{display:block!important;margin:18px 0 12px!important}.manual-title h3{font-size:17px}.manual-title .btn{width:100%!important;min-height:45px!important;margin-top:12px;border-radius:11px!important}
+            .entry-table{border:0!important;border-radius:0!important;background:transparent!important;overflow:visible!important}.entry-head{display:none!important}.line{display:grid!important;grid-template-columns:1fr 1fr!important;gap:9px!important;margin:0 0 10px!important;padding:15px!important;background:#fff!important;border:1px solid #e2e9de!important;border-radius:13px!important;box-shadow:0 4px 15px #17300f08}.line input,.line select{min-height:45px!important;font-size:14px!important}.line input[type=date],.line input[type=text],.line select,.line input[type=number],.line input[type=number]+input[type=number]{grid-column:auto!important}.auto-day{display:flex;align-items:center;min-height:45px;padding:0 10px;background:#f6f8f4;border:1px solid #e0e7dc;border-radius:9px;color:#53604f}.auto-amount{display:flex;align-items:center;justify-content:flex-end;min-height:45px;padding:0 10px;background:#f6f8f4;border:1px solid #e0e7dc;border-radius:9px;font-size:14px}.remove-line{grid-column:1 / -1!important;justify-self:stretch!important;width:100%!important;height:42px!important;border-radius:9px!important}.entry-add{padding:2px 0 0!important;border:0!important}.entry-add .btn{width:100%!important;min-height:46px!important;border-radius:11px!important}
+            .totals{max-width:none!important;margin:16px 0 0!important;background:#fff;border:1px solid #e2e9de;border-radius:12px;padding:10px}.bank{font-size:14px!important;line-height:1.65!important;border-radius:12px!important;margin-top:14px!important;padding:14px!important}
+            .stats{grid-template-columns:1fr 1fr!important;gap:10px!important}.stat{padding:14px!important;border-radius:12px!important}.stat strong{font-size:21px!important}
+            .tablewrap{overflow-x:auto!important;border-radius:10px}.table{min-width:620px!important}
+            .modal{padding:0!important}.sheet{padding:10px 10px 92px!important}
+            #printModal .preview-actions{position:sticky!important;bottom:0!important;z-index:30!important;margin:12px -10px -92px!important;padding:10px!important;background:rgba(255,255,255,.98)!important;border-top:1px solid #dfe6da!important;box-shadow:0 -6px 20px #17300f12!important;display:grid!important;grid-template-columns:1fr 1fr 1.25fr!important;gap:8px!important}.preview-actions .btn{min-width:0!important;width:100%!important;min-height:45px!important;border-radius:10px!important;padding:9px 6px!important;font-size:12px!important}.preview-actions .btn.primary{min-width:0!important}
+            .auth{padding:18px!important;align-items:center!important}.auth-card{padding:22px!important;border-radius:16px!important}.auth-card input{min-height:49px}.tabs button{min-height:45px!important}
+          }
+          @media(max-width:430px){
+            :root{--m-gutter:13px}.content{padding-left:13px!important;padding-right:13px!important}.card{padding:15px!important}.new-card{padding:12px!important}.form-section{padding:14px!important}.stats{grid-template-columns:1fr 1fr!important}.line{grid-template-columns:1fr!important;padding:14px!important}.auto-day,.auto-amount{justify-content:flex-start}.invoice-actions{grid-template-columns:1fr 1fr!important}.invoice-actions .primary{grid-column:1 / -1}.preview-actions .btn{font-size:11px!important}.nav button{padding-left:12px!important;padding-right:12px!important}
+          }
+          </style>
+          <script id="mobile-placeholders-v2">
+          (function(){
+            function polishInputs(){
+              var map={
+                'Customer name':'e.g. Clear Essence Spa & Resort',
+                'Customer address':'e.g. 12 GRA Road, Lagos',
+                'Customer email':'e.g. accounts@example.com',
+                'Invoice number':'e.g. INV-2026-001',
+                'Items':'e.g. Staff meals',
+                'Item':'e.g. Staff meals',
+                'Rate':'e.g. 2,500',
+                'Quantity':'e.g. 33',
+                'Qty':'e.g. 33',
+                'Account Name':'BHIVE Resource Intl LTD',
+                'Account Number':'0302765150'
+              };
+              document.querySelectorAll('input,textarea').forEach(function(el){
+                if(el.placeholder)return;
+                var label=el.closest('div')&&el.closest('div').querySelector('label');
+                var key=label?label.textContent.trim():'';
+                Object.keys(map).some(function(k){if(key.toLowerCase().includes(k.toLowerCase())){el.placeholder=map[k];return true}return false});
+              });
+            }
+            if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',polishInputs);else polishInputs();
+            new MutationObserver(polishInputs).observe(document.body,{subtree:true,childList:true});
+          })();
+          </script>'''
+          if 'id="mobile-polish-v2"' in s: raise SystemExit('already applied')
+          s=s.replace('</head>',patch+'</head>',1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/mobile-polish.yml
+          git add index.html
+          git commit -m "Polish mobile UX with sleek layout and input placeholders"
+          git push
