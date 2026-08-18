@@ -1,0 +1,115 @@
+name: Final mobile invoice preview
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply final mobile preview and PDF export layer
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          patch=r'''<style id="final-mobile-invoice-preview">
+          @media(max-width:800px){
+            /* Mobile is a viewport for the same A4 invoice — never a second invoice design. */
+            #printModal{padding:0!important;align-items:flex-start!important;justify-content:center!important;background:#e9eee7!important;overflow:auto!important}
+            #printModal .sheet{width:100%!important;min-width:0!important;height:auto!important;min-height:100dvh!important;max-height:none!important;padding:12px 12px 88px!important;background:#e9eee7!important;box-shadow:none!important;overflow:visible!important}
+            #printModal #printContent{width:100%!important;overflow:visible!important}
+            #printModal .invoice-ref{width:190mm!important;min-width:190mm!important;max-width:190mm!important;background:#fff!important;margin:0 auto!important;padding:0!important;box-shadow:0 5px 22px rgba(23,32,23,.14)!important;transform-origin:top left!important;font-family:Calibri,Candara,"Segoe UI",Arial,sans-serif!important;font-size:9pt!important}
+            /* Restore desktop invoice geometry that older mobile layers changed. */
+            #printModal .ref-top{display:grid!important;grid-template-columns:1fr 1fr!important;gap:35px!important;align-items:start!important;margin-bottom:35px!important}
+            #printModal .ref-right{text-align:right!important}.ref-word{font-size:29pt!important;margin-bottom:48px!important}
+            #printModal .ref-meta{font-size:9pt!important}.ref-meta td{padding:18px 10px!important}
+            #printModal .ref-week{margin-bottom:27px!important;padding-right:1px!important;overflow:visible!important}
+            #printModal .ref-week table{min-width:0!important;width:100%!important;font-size:6.8pt!important}
+            #printModal .ref-summary{display:grid!important;grid-template-columns:1fr 1.25fr!important}
+            #printModal .ref-accounts{display:grid!important;grid-template-columns:1fr 1fr!important;font-size:10pt!important}
+            #printModal .ref-accounts>div+div{border-left:2px solid #fff!important;border-top:0!important}
+            #printModal .preview-actions{position:sticky!important;bottom:0!important;z-index:20!important;width:100%!important;margin:12px 0 0!important;padding:10px 0!important;background:rgba(255,255,255,.98)!important;backdrop-filter:blur(12px)!important;border-top:1px solid #dfe6da!important;display:grid!important;grid-template-columns:1fr 1fr 1.2fr!important;gap:8px!important}
+            #printModal .preview-actions .btn{min-width:0!important;width:100%!important;min-height:44px!important;border-radius:9px!important;font-size:12px!important}
+          }
+          @media(max-width:430px){#printModal .sheet{padding-left:10px!important;padding-right:10px!important}#printModal .preview-actions{grid-template-columns:1fr 1fr 1.15fr!important}#printModal .preview-actions .btn{font-size:11px!important;padding-left:5px!important;padding-right:5px!important}}
+          </style>
+          <script>
+          (function(){
+            function fitFinalPreview(){
+              if(window.innerWidth>800)return;
+              var sheet=document.querySelector('#printModal .sheet');
+              var inv=document.querySelector('#printModal .invoice-ref');
+              if(!sheet||!inv)return;
+              var available=Math.max(280,sheet.clientWidth-20);
+              var target=inv.offsetWidth||718;
+              var scale=Math.min(1,available/target);
+              inv.style.transform='scale('+scale+')';
+              inv.style.transformOrigin='top left';
+              inv.style.marginLeft=Math.max(0,(available-target*scale)/2)+'px';
+              inv.style.marginRight='0';
+              var stage=inv.parentElement;
+              stage.style.height=Math.ceil(inv.scrollHeight*scale)+'px';
+            }
+            window.addEventListener('resize',function(){requestAnimationFrame(fitFinalPreview)});
+            var mo=new MutationObserver(function(){setTimeout(fitFinalPreview,60)});
+            mo.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+            document.addEventListener('click',function(e){
+              if(e.target.closest('#previewDraft')||e.target.closest('#printModal'))setTimeout(fitFinalPreview,100);
+            });
+
+            /* Export the unscaled desktop invoice, not the mobile viewport. Buttons are outside #invoice-ref,
+               so they can never appear in the PDF. */
+            async function exportExactInvoicePdf(){
+              var source=document.querySelector('#printContent .invoice-ref');
+              var btn=document.getElementById('previewDownload');
+              if(!source)return;
+              if(!window.html2canvas||!window.jspdf||!window.jspdf.jsPDF){alert('PDF engine did not load. Refresh and try again.');return}
+              var old={transform:source.style.transform,marginLeft:source.style.marginLeft,marginRight:source.style.marginRight,width:source.style.width,minWidth:source.style.minWidth,maxWidth:source.style.maxWidth};
+              if(btn){btn.disabled=true;btn.textContent='Preparing…'}
+              try{
+                source.style.transform='none';source.style.marginLeft='0';source.style.marginRight='0';source.style.width='190mm';source.style.minWidth='190mm';source.style.maxWidth='190mm';
+                if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+                await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r)})});
+                var canvas=await html2canvas(source,{scale:2,useCORS:true,allowTaint:false,backgroundColor:'#ffffff',logging:false,scrollX:0,scrollY:0,width:source.scrollWidth,height:source.scrollHeight});
+                var pdf=new jspdf.jsPDF({unit:'mm',format:'a4',orientation:'portrait',compress:true});
+                var pageW=190,pageH=277,pxPerMm=canvas.width/pageW,slicePx=Math.floor(pageH*pxPerMm),y=0,page=0;
+                while(y<canvas.height){var h=Math.min(slicePx,canvas.height-y);var slice=document.createElement('canvas');slice.width=canvas.width;slice.height=h;slice.getContext('2d').drawImage(canvas,0,y,canvas.width,h,0,0,canvas.width,h);if(page>0)pdf.addPage();pdf.addImage(slice.toDataURL('image/jpeg',.96),'JPEG',10,10,pageW,h/pxPerMm,'FAST');y+=h;page++}
+                pdf.save('BHIVE-'+((window.currentInvoiceNumber||'invoice').replace(/[^a-z0-9_-]/gi,'_'))+'.pdf');
+              }catch(err){console.error(err);alert('PDF could not be generated. Please try again.')}finally{
+                source.style.transform=old.transform;source.style.marginLeft=old.marginLeft;source.style.marginRight=old.marginRight;source.style.width=old.width;source.style.minWidth=old.minWidth;source.style.maxWidth=old.maxWidth;fitFinalPreview();if(btn){btn.disabled=false;btn.textContent='Download PDF'}
+              }
+            }
+            document.addEventListener('click',function(e){
+              var button=e.target.closest('#previewDownload');
+              if(!button)return;
+              e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+              exportExactInvoicePdf();
+            },true);
+          })();
+          </script>'''
+          if 'id="final-mobile-invoice-preview"' in s:
+              raise SystemExit('final mobile layer already exists')
+          s=s.replace('</body></html>',patch+'</body></html>')
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Validate JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('index.html').read_text(encoding='utf-8')
+          blocks=re.findall(r'<script>(.*?)</script>',s,re.S)
+          Path('/tmp/app.js').write_text('\n'.join(blocks),encoding='utf-8')
+          PY
+          node --check /tmp/app.js
+      - name: Commit and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/final-mobile-invoice-preview.yml
+          git add index.html
+          git commit -m "Make mobile preview match desktop and export exact A4 invoice"
+          git push
