@@ -1,0 +1,58 @@
+name: Improve manual entry input guidance
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  add-placeholders:
+    if: "!contains(github.event.head_commit.message, 'Improve manual entry input guidance')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add non-invasive manual entry placeholders
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          marker = '</body>'
+          script = r'''<script id="manual-entry-ux-placeholders">
+          (function(){
+            function applyPlaceholders(){
+              document.querySelectorAll('.manual-entry-wrap .line').forEach(function(row){
+                var inputs=row.querySelectorAll('input');
+                if(inputs[0] && inputs[0].type==='date') inputs[0].setAttribute('aria-label','Date');
+                if(inputs[1] && inputs[1].type==='text') inputs[1].placeholder='e.g. Staff meals';
+                if(inputs[2] && inputs[2].type==='number') inputs[2].placeholder='e.g. 33';
+                if(inputs[3] && inputs[3].type==='number') inputs[3].placeholder='e.g. 2,500';
+              });
+            }
+            function start(){
+              applyPlaceholders();
+              var wrap=document.querySelector('.manual-entry-wrap');
+              if(!wrap) return;
+              new MutationObserver(applyPlaceholders).observe(wrap,{childList:true,subtree:true});
+            }
+            if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start); else start();
+          })();
+          </script>'''
+          if 'id="manual-entry-ux-placeholders"' in s:
+              raise SystemExit('Placeholders already installed')
+          if marker not in s:
+              raise SystemExit('Closing body tag not found')
+          s=s.replace(marker,script+marker,1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit change and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Improve manual entry input guidance"
+          git push
+          rm .github/workflows/add-manual-placeholders.yml
+          git add .github/workflows/add-manual-placeholders.yml
+          git commit -m "Remove temporary placeholder workflow"
+          git push
